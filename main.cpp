@@ -39,7 +39,8 @@ public:
 };
 class Feature {
 public:
-	int x, y, rate, maindirection;
+	int x, y, rate;
+	float maindirection;
 	float vector[4][4][8];
 	bool match(Feature* f) {
 		float sum = 0, sumA = 0, sumB = 0, ans;
@@ -536,6 +537,7 @@ void draw(Mat* m) {
 	mHalfHeight = mHeight / 2;
 	bool flag = true;
 	int matchNo;
+	int x, y;
 
 	clear();
 
@@ -562,17 +564,27 @@ void draw(Mat* m) {
 				}
 			}
 		}
-		for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
-			for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
-				if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
-					if (flag) {
+		if (flag) {
+			/*for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
+				for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
+					if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
 						image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
 						image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
 						image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
 					}
 				}
+			}*/
+			for (int r = 0; r < 20; r++) {
+				x = feature[i].x - (int)(r*sin(feature[i].maindirection));
+				y = feature[i].y + (int)(r*cos(feature[i].maindirection));
+				if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
+					image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+					image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
+					image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+				}
 			}
 		}
+
 	}
 
 
@@ -632,7 +644,7 @@ void subtraction(Mat* a, Mat* b, Mat* out) {
 }
 void display(void) {
 	draw(&img);
-	//displayWords(str);
+	displayWords(str);
 	glfwSwapBuffers(window);
 }
 int main(int argc,char** argv) {
