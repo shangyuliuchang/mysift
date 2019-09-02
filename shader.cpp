@@ -1,0 +1,67 @@
+#include"main.h"
+
+const GLchar* vertexShaderSource =
+"#version 330 core\n"
+"layout (location=0) in vec3 position;\n"
+"layout (location=1) in vec3 color;\n"
+"out vec3 mycolor;\n"
+"void main(){\n"
+"gl_Position=vec4(position,1.0f);\n"
+"mycolor=color;\n"
+"}\0";
+
+const GLchar* vertexShaderSource2 =
+"#version 330 core\n"
+"layout (location=0) in vec3 position;\n"
+"layout (location=1) in vec3 color;\n"
+"out vec3 mycolor;\n"
+"void main(){\n"
+"gl_Position=vec4(position,1.0f);\n"
+"mycolor=color;\n"
+"}\0";
+
+const GLchar* fragmentShaderSource =
+"#version 330 core\n"
+"in vec3 mycolor;\n"
+"vec3 universColor;\n"
+"out vec4 fragColor;\n"
+"uniform vec3 target;\n"
+"float k;\n"
+"float universSum;\n"
+"void main(){\n"
+//"universSum=sqrt(mycolor.r*mycolor.r+mycolor.g*mycolor.g+mycolor.b*mycolor.b);\n"
+//"universColor.r=mycolor.r/universSum;\n"
+//"universColor.g=mycolor.g/universSum;\n"
+//"universColor.b=mycolor.b/universSum;\n"
+"universColor=mycolor;\n"
+//"k=(target.r*universColor.r+target.g*universColor.g+target.b*universColor.b)/sqrt((target.r*target.r+target.g*target.g+target.b*target.b)*(universColor.r*universColor.r+universColor.g*universColor.g+universColor.b*universColor.b));\n"
+//"if(k>0.995){\n"
+//"fragColor=vec4(1.0,1.0,1.0,1.0);\n"
+//"}else{\n"
+//"fragColor=vec4(0.0,0.0,0.0,0.0);\n"
+//"}\n"
+"fragColor=vec4(universColor,1.0f);\n"
+"}\0";
+
+const GLchar* fragmentShaderSource2 =
+"#version 330 core\n"
+"in vec3 mycolor;\n"
+"vec3 universColor;\n"
+"out vec4 fragColor;\n"
+"uniform vec3 target;\n"
+"float k;\n"
+"float universSum;\n"
+"void main(){\n"
+//"universSum=sqrt(mycolor.r*mycolor.r+mycolor.g*mycolor.g+mycolor.b*mycolor.b);\n"
+//"universColor.r=mycolor.r/universSum;\n"
+//"universColor.g=mycolor.g/universSum;\n"
+//"universColor.b=mycolor.b/universSum;\n"
+"universColor=mycolor;\n"
+//"k=(target.r*universColor.r+target.g*universColor.g+target.b*universColor.b)/sqrt((target.r*target.r+target.g*target.g+target.b*target.b)*(universColor.r*universColor.r+universColor.g*universColor.g+universColor.b*universColor.b));\n"
+//"if(k>0.995){\n"
+//"fragColor=vec4(1.0,1.0,1.0,1.0);\n"
+//"}else{\n"
+//"fragColor=vec4(0.0,0.0,0.0,0.0);\n"
+//"}\n"
+"fragColor=vec4(universColor,1.0f);\n"
+"}\0";
