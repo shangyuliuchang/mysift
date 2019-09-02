@@ -3,6 +3,8 @@
 using namespace cv;
 using namespace std;
 
+#define DRAE_LINE 1
+
 void subtraction(Mat*, Mat*, Mat*);
 void normalize(Mat*);
 float rgbSum(uchar* p, int j);
@@ -565,22 +567,26 @@ void draw(Mat* m) {
 			}
 		}
 		if (flag) {
-			/*for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
-				for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
+			if(DRAE_LINE){
+				for (int r = 0; r < 20; r++) {
+					x = feature[i].x - (int)(r*sin(feature[i].maindirection));
+					y = feature[i].y + (int)(r*cos(feature[i].maindirection));
 					if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
 						image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
 						image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
 						image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
 					}
 				}
-			}*/
-			for (int r = 0; r < 20; r++) {
-				x = feature[i].x - (int)(r*sin(feature[i].maindirection));
-				y = feature[i].y + (int)(r*cos(feature[i].maindirection));
-				if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
-					image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
-					image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
-					image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+			}
+			else {
+				for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
+					for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
+						if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
+							image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+							image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
+							image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+						}
+					}
 				}
 			}
 		}
