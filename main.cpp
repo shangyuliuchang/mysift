@@ -3,6 +3,12 @@
 using namespace cv;
 using namespace std;
 
+#define DRAW_POINT 1
+#define DRAW_DIRECTION 0
+#define DRAW_DELTA 1
+#define ACCURATE_POSITION 1
+#define VARIABLE_SIZE 0
+
 void subtraction(Mat*, Mat*, Mat*);
 void normalize(Mat*);
 float rgbSum(uchar* p, int j);
@@ -22,12 +28,12 @@ GLint success;
 GLuint vertexShader, fragmentShader, shaderProgram, vbo, vao, lists;
 char str[] = { 'r',':','x','x','x',' ','g',':','x','x','x',' ','b',':','x','x','x' };
 float sigma = 1.6f, k = 0.5f;
-int threashold = 30;
+int threashold = 20;
 float edgeThreashold = 5.0f;
 float preBlur = 0.5f;
 const float pi = 3.14159f;
 float edgeWidth = 3.0f;
-float matchThreashold = 0.9f;
+float matchThreashold = 0.95f;
 
 
 class GaussianMat {
@@ -107,45 +113,68 @@ public:
 	}
 	void compute() {
 		float x, y;
+		float dxx, dyy, dxy, dx, dy, x0, y0;
 		GLubyte* p[9];
+		int shouldUse = 1;
 
-		for (int kk = 1; kk < number - 2; kk++) {
-			for (int i = 1; i < g[0].rows - 1; i++) {
+		for (int myK = 1; myK < number - 2; myK++) {
+			for (int i = 6; i < g[0].rows - 6; i++) {
 
-				p[0] = dog[kk - 1].ptr(i - 1);
-				p[1] = dog[kk - 1].ptr(i);
-				p[2] = dog[kk - 1].ptr(i + 1);
-				p[3] = dog[kk].ptr(i - 1);
-				p[4] = dog[kk].ptr(i);
-				p[5] = dog[kk].ptr(i + 1);
-				p[6] = dog[kk + 1].ptr(i - 1);
-				p[7] = dog[kk + 1].ptr(i);
-				p[8] = dog[kk + 1].ptr(i + 1);
+				p[0] = dog[myK - 1].ptr(i - 1);
+				p[1] = dog[myK - 1].ptr(i);
+				p[2] = dog[myK - 1].ptr(i + 1);
+				p[3] = dog[myK].ptr(i - 1);
+				p[4] = dog[myK].ptr(i);
+				p[5] = dog[myK].ptr(i + 1);
+				p[6] = dog[myK + 1].ptr(i - 1);
+				p[7] = dog[myK + 1].ptr(i);
+				p[8] = dog[myK + 1].ptr(i + 1);
 
-				for (int j = 1; j < g[0].cols - 1; j++) {
+				for (int j = 6; j < g[0].cols - 6; j++) {
 					if (max(p, j)) {
-						if (isnotEdge2(&dog[kk], dog[kk].cols, dog[kk].rows, i, j)||!edgeTest) {
-							/*a = 0.5f*(rgbSum(p[5], j) + rgbSum(p[3], j)) - rgbSum(p[4], j);
-							d = 0.5f*(rgbSum(p[5], j) - rgbSum(p[3], j));
-							b = 0.5f*(rgbSum(p[4], j + 1) + rgbSum(p[4], j - 1)) - rgbSum(p[4], j);
-							e = 0.5f*(rgbSum(p[4], j + 1) - rgbSum(p[4], j - 1));
-							c = 0.25f*((rgbSum(p[5], j + 1) - rgbSum(p[3], j - 1)) - (rgbSum(p[3], j + 1) - rgbSum(p[5], j - 1)));
+						if (isnotEdge2(&g[myK], dog[myK].cols, dog[myK].rows, i, j)||!edgeTest) {
+							//x = -0.5f*(rgbSum(p[5], j) - rgbSum(p[3], j)) / (rgbSum(p[3], j) + rgbSum(p[5], j) - 2 * rgbSum(p[4], j));
+							//y = -0.5f*(rgbSum(p[4], j + 1) - rgbSum(p[4], j - 1)) / (rgbSum(p[4], j + 1) + rgbSum(p[4], j - 1) - 2 * rgbSum(p[4], j));
+							shouldUse = 1;
+							x0 = i; y0 = j;
+							if(ACCURATE_POSITION){
+								for (int l = 0; l < 5; l++) {
+									dxx = subPixelGray(&dog[myK], x0 - 1, y0) + subPixelGray(&dog[myK], x0 + 1, y0) - 2 * subPixelGray(&dog[myK], x0, y0);
+									dyy = subPixelGray(&dog[myK], x0, y0 - 1) + subPixelGray(&dog[myK], x0, y0 + 1) - 2 * subPixelGray(&dog[myK], x0, y0);
+									dxy = ((subPixelGray(&dog[myK], x0 + 1, y0 + 1) - subPixelGray(&dog[myK], x0 + 1, y0 - 1)) - (subPixelGray(&dog[myK], x0 - 1, y0 + 1) - subPixelGray(&dog[myK], x0 - 1, y0 - 1))) / 4;
+									dx = (subPixelGray(&dog[myK], x0 + 1, y0) - subPixelGray(&dog[myK], x0 - 1, y0)) / 2;
+									dy = (subPixelGray(&dog[myK], x0, y0 + 1) - subPixelGray(&dog[myK], x0, y0 - 1)) / 2;
+									if ((dxy*dxy - dxx * dyy) != 0 && dxx != 0) {
+										y = dx * (dxx - dxy) / (dxy*dxy - dxx * dyy);
+										x = (-y * dxy - dx) / dxx;
+									}
+									else {
+										shouldUse = 0;
+										break;
+									}
+									if (abs(x) > 0.5 || abs(y) > 0.5) {
+										shouldUse = 0;
+										break;
+									}
+									x0 += x;
+									y0 += y;
+									if (x0<0 || x0>g[0].rows || y0<0 || y0>g[0].cols) {
+										x0 -= x;
+										y0 -= y;
+										break;
+									}
+								}
+							}
+							if (shouldUse) {
+								feature[pos].clear();
+								feature[pos].x = (int)((x0) * 640 / g[0].cols);
+								feature[pos].y = (int)((y0) * 640 / g[0].cols);
+								feature[pos].rate = 640 / g[0].cols;
+								featureCompute(&g[myK], (float)x0, (float)y0, &feature[pos], 3.0f);
 
-							y = (c*d - 2 * a*e) / (4 * a*b - c * c);
-							x = -1 * (c*d + c * c*y) / (2 * a*c);
-
-							x = 0; y = 0;*/
-							x = -0.5f*(rgbSum(p[5], j) - rgbSum(p[3], j)) / (rgbSum(p[3], j) + rgbSum(p[5], j) - 2 * rgbSum(p[4], j));
-							y = -0.5f*(rgbSum(p[4], j + 1) - rgbSum(p[4], j - 1)) / (rgbSum(p[4], j + 1) + rgbSum(p[4], j - 1) - 2 * rgbSum(p[4], j));
-
-							feature[pos].clear();
-							feature[pos].x = (int)((i + x) * 640 / g[0].cols);
-							feature[pos].y = (int)((j + y) * 640 / g[0].cols);
-							feature[pos].rate = 640 / g[0].cols;
-							featureCompute(&g[kk], (float)i + x, (float)j + y, &feature[pos], 3.0f);
-
-							if (pos < 9999) {
-								pos++;
+								if (pos < 9999) {
+									pos++;
+								}
 							}
 						}
 					}
@@ -165,60 +194,6 @@ private:
 		}
 		return true;
 	}
-	/*bool isnotEdge(Mat* m, int mWidth, int mHeight, int iSrc, int jSrc) {
-		uchar* p[5];
-		float fux, fuy, fdx, fdy, flx, fly, frx, fry;
-		float sxy, sxx, syy, syx;
-		float tr, det;
-		float key;
-		float threashold = edgeThreashold;
-		int scale = 2;
-		int i = iSrc * m->cols / mWidth;
-		int j = jSrc * m->cols / mWidth;
-
-
-		if (edgeTest == 0) {
-			return true;
-		}
-		else {
-			if (i < scale * 2 || i >= m->rows - scale * 2 || j < scale * 2 || j >= m->cols - scale * 2) {
-				return false;
-			}
-			else {
-				p[0] = m->ptr(i - scale * 2);
-				p[1] = m->ptr(i - scale);
-				p[2] = m->ptr(i);
-				p[3] = m->ptr(i + scale);
-				p[4] = m->ptr(i + scale * 2);
-
-
-				fux = (rgbSum(p[1], j + scale) - rgbSum(p[1], j - scale)) / 2 / scale;
-				fdx = (rgbSum(p[3], j + scale) - rgbSum(p[3], j - scale)) / 2 / scale;
-				flx = (rgbSum(p[2], j + scale * 2) - rgbSum(p[2], j)) / 2 / scale;
-				frx = (rgbSum(p[2], j) - rgbSum(p[2], j - scale * 2)) / 2 / scale;
-				fuy = (rgbSum(p[2], j) - rgbSum(p[0], j)) / 2 / scale;
-				fdy = (rgbSum(p[4], j) - rgbSum(p[2], j)) / 2 / scale;
-				fly = (rgbSum(p[3], j - scale) - rgbSum(p[1], j - scale)) / 2 / scale;
-				fry = (rgbSum(p[3], j + scale) - rgbSum(p[1], j + scale)) / 2 / scale;
-
-				sxx = (frx - flx) / scale / 2;
-				syy = (fdy - fuy) / scale / 2;
-				sxy = (fry - fly) / scale / 2;
-				syx = (fdx - fux) / scale / 2;
-
-				tr = sxx + syy;
-				det = sxx * syy - sxy * syx;
-
-				key = tr * tr / abs(det);
-				if (key > threashold) {
-					return false;
-				}
-				else {
-					return true;
-				}
-			}
-		}
-	}*/
 	bool isnotEdge2(Mat* m, int mWidth, int mHeight, int iSrc, int jSrc) {
 		float i = (float)(iSrc * m->cols) / (float)(mWidth);
 		float j = (float)(jSrc * m->cols) / (float)(mWidth);
@@ -276,7 +251,7 @@ private:
 		float mainDirection, direction, weight;
 		float count[37] = { 0.0f };
 		float max = 0, maxNum = 0;
-		float xx, yy, r, sita, addition;
+		float xx, yy, r, sita;
 		int nox, noy, noangle;
 		float sum = 0;
 		Feature ff;
@@ -292,7 +267,7 @@ private:
 
 					if (count[(int)((int)(direction * 180 / pi + 180) / 10) % 36] > max) {
 						max = count[(int)((int)(direction * 180 / pi + 180) / 10) % 36];
-						maxNum = (int)((int)(direction * 180 / pi + 180) / 10) % 36;
+						maxNum = (float)((int)((int)(direction * 180 / pi + 180) / 10) % 36);
 					}
 				}
 			}
@@ -318,6 +293,9 @@ private:
 						featureVectorDirection(m, i, j, &direction, &weight);
 						direction += pi;
 						direction -= mainDirection;
+						if (direction < 0) {
+							direction += 2 * pi;
+						}
 						noangle = (int)((int)(direction * 180 / pi + 180) / 45) % 8;
 						for (int vi = 0; vi < 4; vi++) {
 							for (int vj = 0; vj < 4; vj++) {
@@ -395,23 +373,20 @@ float rgbSum(uchar* p, int j) {
 	return float(p[j * 3] + p[j * 3 + 1] + p[j * 3 + 2]);
 }
 float subPixelGray(Mat* m, float x, float y) {
-	int xO = (int)x, yO = (int)y;
-	float a, b, c, d, e, f;
-	float xx = x - xO, yy = y - yO;
-	uchar* p[3];
-
-	p[0] = m->ptr(xO - 1);
-	p[1] = m->ptr(xO);
-	p[2] = m->ptr(xO + 1);
-	
-	f = rgbSum(p[1], yO);
-	a = 0.5f*(rgbSum(p[2], yO) + rgbSum(p[0], yO)) - rgbSum(p[1], yO);
-	b = 0.5f*(rgbSum(p[1], yO + 1) + rgbSum(p[1], yO - 1)) - rgbSum(p[1], yO);
-	d = 0.5f*(rgbSum(p[2], yO) - rgbSum(p[0], yO));
-	e = 0.5f*(rgbSum(p[1], yO + 1) - rgbSum(p[1], yO - 1));
-	c = 0.25f*((rgbSum(p[2], yO + 1) + rgbSum(p[0], yO - 1)) - (rgbSum(p[0], yO + 1) + rgbSum(p[2], yO - 1)));
-
-	return a * xx*xx + b * yy*yy + c * xx*yy + d * xx + e * yy + f;
+	int x1, x2, y1, y2;
+	float p1, p2, p3, p4, p5, p6, p7;
+	x1 = (int)x;
+	x2 = x1 + 1;
+	y1 = (int)y;
+	y2 = y1 + 1;
+	p1 = rgbSum(m->ptr(x1), y1);
+	p2 = rgbSum(m->ptr(x1), y2);
+	p3 = rgbSum(m->ptr(x2), y1);
+	p4 = rgbSum(m->ptr(x2), y2);
+	p5 = (p2 - p1)*(y - y1) + p1;
+	p6 = (p4 - p3)*(y - y1) + p3;
+	p7 = (p6 - p5)*(x - x1) + p5;
+	return p7;
 }
 void normalize(Mat* m) {
 	uchar* p;
@@ -538,6 +513,7 @@ void draw(Mat* m) {
 	bool flag = true;
 	int matchNo;
 	int x, y;
+	float distance, angle;
 
 	clear();
 
@@ -565,17 +541,47 @@ void draw(Mat* m) {
 			}
 		}
 		if (flag) {
-			for (int r = 0; r < 20; r++) {
-				x = feature[i].x - (int)(r*sin(feature[i].maindirection));
-				y = feature[i].y + (int)(r*cos(feature[i].maindirection));
-				if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
-					image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
-					image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
-					image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+			if (DRAW_DIRECTION) {
+				for (int r = 0; r < 20; r++) {
+					x = feature[i].x - (int)(r*sin(feature[i].maindirection));
+					y = feature[i].y + (int)(r*cos(feature[i].maindirection));
+					if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
+						image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+						image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
+						image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+					}
 				}
 			}
-			for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
-				for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
+			if (DRAW_POINT) {
+				if (VARIABLE_SIZE) {
+					for (int x = feature[i].x - 2 * feature[i].rate; x <= feature[i].x + 2 * feature[i].rate; x++) {
+						for (int y = feature[i].y - 2 * feature[i].rate; y <= feature[i].y + 2 * feature[i].rate; y++) {
+							if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
+								image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+								image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
+								image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+							}
+						}
+					}
+				}
+				else {
+					for (int x = feature[i].x - 2; x <= feature[i].x + 2; x++) {
+						for (int y = feature[i].y - 2; y <= feature[i].y + 2; y++) {
+							if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
+								image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+								image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
+								image[x * mWidth * 6 + y * 6 + 5] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
+							}
+						}
+					}
+				}
+			}
+			if (DRAW_DELTA && match) {
+				distance = (float)sqrt(pow(feature[i].x - matchTarget[matchNo].x, 2) + (pow(feature[i].y - matchTarget[matchNo].y, 2)));
+				angle = (float)atan2(feature[i].y - matchTarget[matchNo].y, feature[i].x - matchTarget[matchNo].x);
+				for (int r = 0; r < distance; r++) {
+					x = feature[i].x - (int)(r*cos(angle));
+					y = feature[i].y - (int)(r*sin(angle));
 					if (x >= 0 && x < mHeight && y >= 0 && y < mWidth) {
 						image[x * mWidth * 6 + y * 6 + 3] = 1.0f - (float)((matchNo * 10) % 256) / 255.0f;
 						image[x * mWidth * 6 + y * 6 + 4] = (float)((matchNo * 10) % 256) / 255.0f;
@@ -658,38 +664,11 @@ int main(int argc,char** argv) {
 		system("pause");
 		return 0;
 	}
-	/*pic = imread("a.jpg");
-	cv::Ptr<xfeatures2d::SIFT> detector = xfeatures2d::SIFT::create();
-	vector<KeyPoint> keypoint, keypoint2;
-	Mat imgSIFT, image, result;
-
-	cap >> raw;
-	detector->detectAndCompute(raw, noArray(), keypoint, descriptor);
-	drawKeypoints(raw, keypoint, image);
-	imshow("image", image);
-	waitKey(10);
-	BFMatcher matcher;
-	vector<DMatch> match;*/
 
 	while (!glfwWindowShouldClose(window)) {
 		cap.read(raw);
 		img = raw.clone();
 		GaussianBlur(raw, preprocess, Size(0, 0), preBlur);
-
-		/*detector->detectAndCompute(raw, noArray(), keypoint2, descriptor2);
-
-		if (keypoint.size() > 0) {
-			drawKeypoints(raw, keypoint2, imgSIFT);
-			//imshow("SIFT", imgSIFT);
-			//waitKey(10);
-
-			matcher.match(descriptor, descriptor2, match);
-			nth_element(match.begin(), match.begin() + 9, match.end());
-			match.erase(match.begin() + 10, match.end());
-			drawMatches(image, keypoint, raw, keypoint2, match, result);
-			imshow("result", result);
-			waitKey(10);
-		}*/
 
 		pyramid.update(&preprocess, 6);
 
