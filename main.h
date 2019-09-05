@@ -15,7 +15,7 @@ public:
 	int x, y, rate, done;
 	float maindirection;
 	float vector[4][4][8];
-	bool match(Feature* f) {
+	float match(Feature* f) {
 		float sum = 0, sumA = 0, sumB = 0, ans;
 		for (int i = 0; i < 4; i++) {
 			for (int j = 0; j < 4; j++) {
@@ -30,12 +30,24 @@ public:
 		sumB = sqrt(sumB);
 
 		ans = sum / (sumA*sumB);
-		if (ans > matchThreashold) {
-			return true;
+		return ans;
+	}
+	__device__ float gpumatch(Feature* f) {
+		float sum = 0, sumA = 0, sumB = 0, ans;
+		for (int i = 0; i < 4; i++) {
+			for (int j = 0; j < 4; j++) {
+				for (int kk = 0; kk < 8; kk++) {
+					sum += f->vector[i][j][kk] * this->vector[i][j][kk];
+					sumA += pow(f->vector[i][j][kk], 2);
+					sumB += pow(this->vector[i][j][kk], 2);
+				}
+			}
 		}
-		else {
-			return false;
-		}
+		sumA = sqrt(sumA);
+		sumB = sqrt(sumB);
+
+		ans = sum / (sumA*sumB);
+		return ans;
 	}
 	void clear() {
 		x = 0;

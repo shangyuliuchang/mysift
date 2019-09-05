@@ -4,6 +4,8 @@ using namespace cv;
 using namespace std;
 
 extern "C" void gpuFeature(Mat * m, float * x, float * y, int num, Feature* feature);
+extern "C" void gpuMax(Mat* m1, Mat* m2, Mat* m3, float* xout, float* yout);
+extern "C" void gpuFeatureMatch(Feature* source, Feature* target, int sourcenum, int targetnum, int* ans);
 
 #define DRAW_POINT 1
 #define DRAW_DIRECTION 1
@@ -53,24 +55,17 @@ GLFWwindow *window;
 GLint success;
 GLuint vertexShader, fragmentShader, shaderProgram, vbo, vao, lists;
 char str[] = { 'r',':','x','x','x',' ','g',':','x','x','x',' ','b',':','x','x','x' };
+float gpuMaxX[640 * 480], gpuMaxY[640 * 480];
 float hostx[10000], hosty[10000];
 int PointNumber = 0;
 float sigma = 1.6f, k = 0.5f;
-int threashold = 20;
+int threashold = 0;
 float edgeThreashold = 5.0f;
 float preBlur = 0.5f;
 const float pi = 3.14159f;
 float edgeWidth = 3.0f;
-float matchThreashold = 0.95f;
-
-
-class GaussianMat {
-public:
-	Mat gaussianmat;
-	void update(Mat* m, double sigma) {
-		GaussianBlur(*m, gaussianmat, Size(0, 0), sigma, sigma);
-	}
-};
+float matchThreashold = 0.99f;
+float featurescale = 3.0;
 
 Feature feature[10000], matchTarget[10000], hostfeature[10000];
 class DoG {
@@ -90,147 +85,41 @@ public:
 	}
 	void compute() {
 		float x, y;
-		float dxx, dyy, dxy, dx, dy, x0, y0;
+		float x0, y0;
 		GLubyte* p[9];
 		int shouldUse = 1;
-
 		for (int myK = 1; myK < number - 2; myK++) {
-			if (GPU_FEATURE) {
-				PointNumber = 0;
-				for (int i = 6; i < g[0].rows - 6; i++) {
-
-					p[0] = dog[myK - 1].ptr(i - 1);
-					p[1] = dog[myK - 1].ptr(i);
-					p[2] = dog[myK - 1].ptr(i + 1);
-					p[3] = dog[myK].ptr(i - 1);
-					p[4] = dog[myK].ptr(i);
-					p[5] = dog[myK].ptr(i + 1);
-					p[6] = dog[myK + 1].ptr(i - 1);
-					p[7] = dog[myK + 1].ptr(i);
-					p[8] = dog[myK + 1].ptr(i + 1);
-
-					for (int j = 6; j < g[0].cols - 6; j++) {
-						if (max(p, j)) {
-							if (isnotEdge2(&g[myK], dog[myK].cols, dog[myK].rows, i, j) || !edgeTest) {
-								//x = -0.5f*(rgbSum(p[5], j) - rgbSum(p[3], j)) / (rgbSum(p[3], j) + rgbSum(p[5], j) - 2 * rgbSum(p[4], j));
-								//y = -0.5f*(rgbSum(p[4], j + 1) - rgbSum(p[4], j - 1)) / (rgbSum(p[4], j + 1) + rgbSum(p[4], j - 1) - 2 * rgbSum(p[4], j));
-								shouldUse = 1;
-								x0 = i; y0 = j;
-								if (ACCURATE_POSITION) {
-									for (int l = 0; l < 5; l++) {
-										dxx = subPixelGray(&dog[myK], x0 - 1, y0) + subPixelGray(&dog[myK], x0 + 1, y0) - 2 * subPixelGray(&dog[myK], x0, y0);
-										dyy = subPixelGray(&dog[myK], x0, y0 - 1) + subPixelGray(&dog[myK], x0, y0 + 1) - 2 * subPixelGray(&dog[myK], x0, y0);
-										dxy = ((subPixelGray(&dog[myK], x0 + 1, y0 + 1) - subPixelGray(&dog[myK], x0 + 1, y0 - 1)) - (subPixelGray(&dog[myK], x0 - 1, y0 + 1) - subPixelGray(&dog[myK], x0 - 1, y0 - 1))) / 4;
-										dx = (subPixelGray(&dog[myK], x0 + 1, y0) - subPixelGray(&dog[myK], x0 - 1, y0)) / 2;
-										dy = (subPixelGray(&dog[myK], x0, y0 + 1) - subPixelGray(&dog[myK], x0, y0 - 1)) / 2;
-										if ((dxy*dxy - dxx * dyy) != 0 && dxx != 0) {
-											y = dx * (dxx - dxy) / (dxy*dxy - dxx * dyy);
-											x = (-y * dxy - dx) / dxx;
-										}
-										else {
-											shouldUse = 0;
-											break;
-										}
-										if (abs(x) > 0.5 || abs(y) > 0.5) {
-											shouldUse = 0;
-											break;
-										}
-										x0 += x;
-										y0 += y;
-										if (x0<0 || x0>g[0].rows || y0<0 || y0>g[0].cols) {
-											x0 -= x;
-											y0 -= y;
-											break;
-										}
-									}
-								}
-								if (shouldUse) {
-									hostx[PointNumber] = x0;
-									hosty[PointNumber] = y0;
-									PointNumber++;
-								}
-							}
+			PointNumber = 0;
+			gpuMax(&dog[myK - 1], &dog[myK], &dog[myK + 1], gpuMaxX, gpuMaxY);
+			for (int i = 0; i < dog[0].rows; i++) {
+				for (int j = 0; j < dog[0].cols; j++) {
+					if (gpuMaxX[i*dog[0].cols + j] > 0) {
+						if (isnotEdge2(&g[myK], g[0].cols, g[0].rows, gpuMaxX[i*dog[0].cols + j], gpuMaxY[i*dog[0].cols + j])) {
+							hostx[PointNumber] = gpuMaxX[i*dog[0].cols + j];
+							hosty[PointNumber] = gpuMaxY[i*dog[0].cols + j];
+							PointNumber++;
 						}
 					}
-				}
-				if (PointNumber > 0) {
-					gpuFeature(&g[myK], hostx, hosty, PointNumber, hostfeature);
-					for (int c = 0; c < PointNumber; c++) {
-						hostfeature[c].cloneto(&feature[pos + c]);
-					}
-					pos += PointNumber;
-					PointNumber = 0;
 				}
 			}
-			else {
-				for (int i = 6; i < g[0].rows - 6; i++) {
-
-					p[0] = dog[myK - 1].ptr(i - 1);
-					p[1] = dog[myK - 1].ptr(i);
-					p[2] = dog[myK - 1].ptr(i + 1);
-					p[3] = dog[myK].ptr(i - 1);
-					p[4] = dog[myK].ptr(i);
-					p[5] = dog[myK].ptr(i + 1);
-					p[6] = dog[myK + 1].ptr(i - 1);
-					p[7] = dog[myK + 1].ptr(i);
-					p[8] = dog[myK + 1].ptr(i + 1);
-
-					for (int j = 6; j < g[0].cols - 6; j++) {
-						if (max(p, j)) {
-							if (isnotEdge2(&g[myK], dog[myK].cols, dog[myK].rows, i, j) || !edgeTest) {
-								//x = -0.5f*(rgbSum(p[5], j) - rgbSum(p[3], j)) / (rgbSum(p[3], j) + rgbSum(p[5], j) - 2 * rgbSum(p[4], j));
-								//y = -0.5f*(rgbSum(p[4], j + 1) - rgbSum(p[4], j - 1)) / (rgbSum(p[4], j + 1) + rgbSum(p[4], j - 1) - 2 * rgbSum(p[4], j));
-								shouldUse = 1;
-								x0 = i; y0 = j;
-								if (ACCURATE_POSITION) {
-									for (int l = 0; l < 5; l++) {
-										dxx = subPixelGray(&dog[myK], x0 - 1, y0) + subPixelGray(&dog[myK], x0 + 1, y0) - 2 * subPixelGray(&dog[myK], x0, y0);
-										dyy = subPixelGray(&dog[myK], x0, y0 - 1) + subPixelGray(&dog[myK], x0, y0 + 1) - 2 * subPixelGray(&dog[myK], x0, y0);
-										dxy = ((subPixelGray(&dog[myK], x0 + 1, y0 + 1) - subPixelGray(&dog[myK], x0 + 1, y0 - 1)) - (subPixelGray(&dog[myK], x0 - 1, y0 + 1) - subPixelGray(&dog[myK], x0 - 1, y0 - 1))) / 4;
-										dx = (subPixelGray(&dog[myK], x0 + 1, y0) - subPixelGray(&dog[myK], x0 - 1, y0)) / 2;
-										dy = (subPixelGray(&dog[myK], x0, y0 + 1) - subPixelGray(&dog[myK], x0, y0 - 1)) / 2;
-										if ((dxy*dxy - dxx * dyy) != 0 && dxx != 0) {
-											y = dx * (dxx - dxy) / (dxy*dxy - dxx * dyy);
-											x = (-y * dxy - dx) / dxx;
-										}
-										else {
-											shouldUse = 0;
-											break;
-										}
-										if (abs(x) > 0.5 || abs(y) > 0.5) {
-											shouldUse = 0;
-											break;
-										}
-										x0 += x;
-										y0 += y;
-										if (x0<0 || x0>g[0].rows || y0<0 || y0>g[0].cols) {
-											x0 -= x;
-											y0 -= y;
-											break;
-										}
-									}
-								}
-								if (shouldUse) {
-									feature[pos].clear();
-									feature[pos].x = (int)((x0) * 640 / g[0].cols);
-									feature[pos].y = (int)((y0) * 640 / g[0].cols);
-									feature[pos].rate = 640 / g[0].cols;
-									featureCompute(&g[myK], (float)x0, (float)y0, &feature[pos], 3.0f);
-
-									if (pos < 9999) {
-										pos++;
-									}
-								}
-							}
-						}
-					}
+			if (PointNumber > 0) {
+				gpuFeature(&g[myK], hostx, hosty, PointNumber, hostfeature);
+				for (int c = 0; c < PointNumber; c++) {
+					hostfeature[c].cloneto(&feature[pos + c]);
 				}
+				pos += PointNumber;
+				PointNumber = 0;
 			}
 		}
 	}
 private:
 	int number;
-	bool max(uchar** p, int j) {
+	/*bool max(uchar** p, int i, int j, float* xout, float* yout, int* shouldUse, int width, int height, Mat* m) {
+		float dxx, dyy, dxy, dx, dy, x0 = i, y0 = j, x, y;
+		int use = 1;
+		if (!(x0 >= featurescale * 3 + 1 && x0 < height - featurescale * 3 + 1 && y0 >= featurescale * 3 + 1 && y0 < width - featurescale * 3 + 1)) {
+			return false;
+		}
 		for (int i = 0; i < 9; i++) {
 			for (int k = j - 1; k <= j + 1; k++) {
 				if (rgbSum(p[i], k) + threashold > rgbSum(p[4], j) && (i != 4 || k != j)) {
@@ -238,9 +127,47 @@ private:
 				}
 			}
 		}
-		return true;
-	}
-	bool isnotEdge2(Mat* m, int mWidth, int mHeight, int iSrc, int jSrc) {
+		for (int l = 0; l < 5; l++) {
+			dxx = subPixelGray(m, x0 - 1, y0) + subPixelGray(m, x0 + 1, y0) - 2 * subPixelGray(m, x0, y0);
+			dyy = subPixelGray(m, x0, y0 - 1) + subPixelGray(m, x0, y0 + 1) - 2 * subPixelGray(m, x0, y0);
+			dxy = ((subPixelGray(m, x0 + 0.5, y0 + 0.5) - subPixelGray(m, x0 + 0.5, y0 - 0.5)) - (subPixelGray(m, x0 - 0.5, y0 + 0.5) - subPixelGray(m, x0 - 0.5, y0 - 0.5)));
+			dx = (subPixelGray(m, x0 + 0.5, y0) - subPixelGray(m, x0 - 0.5, y0));
+			dy = (subPixelGray(m, x0, y0 + 0.5) - subPixelGray(m, x0, y0 - 0.5));
+			if ((dxy*dxy - dxx * dyy) != 0 && dxx != 0) {
+				y = (dx*dxy - dy * dxx) / (dxx*dyy - dxy * dxy);
+				x = (dy*dxy - dx * dyy) / (dxx*dyy - dxy * dxy);
+			}
+			else {
+				use = 0;
+				break;
+			}
+			if (abs(x) > 0.5 || abs(y) > 0.5) {
+				use = 0;
+				break;
+			}
+			x0 += x;
+			y0 += y;
+			if (x0<0 || x0>g[0].rows || y0<0 || y0>g[0].cols) {
+				x0 -= x;
+				y0 -= y;
+				use = 0;
+				break;
+			}
+		}
+		if (dxy < 1) {
+			use = 0;
+		}
+		if (use == 1) {
+			*xout = x0;
+			*yout = y0;
+			*shouldUse = use;
+			return true;
+		}
+		else {
+			return false;
+		}
+	}*/
+	bool isnotEdge2(Mat* m, int mWidth, int mHeight, float iSrc, float jSrc) {
 		float i = (float)(iSrc * m->cols) / (float)(mWidth);
 		float j = (float)(jSrc * m->cols) / (float)(mWidth);
 		float deltaSita = 5 * pi / 180;
@@ -280,8 +207,13 @@ private:
 			sxy = (fry - fly) / (edgeWidth * 2);
 			syx = (fdx - fux) / (edgeWidth * 2);
 
+			//sxx = (subPixelGray(m, x[3], y[3]) + subPixelGray(m, x[5], y[5]) - 2 * subPixelGray(m, x[4], y[4]));
+			//syy = (subPixelGray(m, x[1], y[1]) + subPixelGray(m, x[7], y[7]) - 2 * subPixelGray(m, x[4], y[4]));
+			//sxy = ((subPixelGray(m, x[8], y[8]) - subPixelGray(m, x[6], y[6])) - (subPixelGray(m, x[2], y[2]) - subPixelGray(m, x[0], y[0]))) / 4;
+
 			tr = sxx + syy;
 			det = sxx * syy - sxy * syx;
+			//det = sxx * syy - sxy * sxy;
 
 			key = tr * tr / abs(det);
 
@@ -561,6 +493,8 @@ void draw(Mat* m) {
 	int x, y;
 	float distance, angle;
 	int drawCount = 0;
+	int ans[10000] = { 0 };
+	int same[10000] = { 0 };
 
 	clear();
 
@@ -575,18 +509,22 @@ void draw(Mat* m) {
 			image[i * mWidth * 6 + j * 6 + 5] = (float)p[j * 3] / 255;
 		}
 	}
+	gpuFeatureMatch(feature, matchTarget, pos, targetNum, ans);
 	for (int i = 0; i < pos; i++) {
-		matchNo = 0;
-		flag = true;
-		if (!resetTarget && match) {
+		if (ans[i] > -1) {
+			same[ans[i]]++;
+		}
+	}
+	for (int i = 0; i < pos; i++) {
+		if (ans[i] > -1 && same[ans[i]]<=1){
+			flag = true;
+			matchNo = ans[i];
+		}
+		else {
 			flag = false;
-			for (int num = 0; num < targetNum; num++) {
-				if (feature[i].match(&matchTarget[num])) {
-					flag = true;
-					matchNo = num;
-					break;
-				}
-			}
+		}
+		if (match == 0) {
+			flag = true;
 		}
 		if (flag) {
 			if (DRAW_DIRECTION) {

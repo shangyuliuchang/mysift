@@ -69,7 +69,8 @@ __global__ void test(uchar* m, float* devicex, float* devicey, Feature* f, int* 
 					nox = (int)((xx - (x - scale * 2.0f)) / scale);
 					noy = (int)((yy - (y - scale * 2.0f)) / scale);
 
-					if (nox >= 0 && nox < 4 && noy >= 0 && noy < 4) {
+					//if (nox >= 0 && nox < 4 && noy >= 0 && noy < 4) {
+					if (r <= scale * 2) {
 						featureVectorDirection(m, i, j, &direction, &weight, *width, *height);
 						direction += pi;
 						direction -= mainDirection;
@@ -80,12 +81,12 @@ __global__ void test(uchar* m, float* devicex, float* devicey, Feature* f, int* 
 						for (int vi = 0; vi < 4; vi++) {
 							for (int vj = 0; vj < 4; vj++) {
 								for (int vk = 0; vk < 8; vk++) {
-									deltaangle = abs(vk - direction * 4.0f / pi) / 2;
-									if (deltaangle > 18) {
-										deltaangle = 36 - deltaangle;
+									deltaangle = abs(vk + 0.5 - direction * 4 / pi);
+									if (deltaangle > 4) {
+										deltaangle = 8 - deltaangle;
 									}
-									distance = (float)(pow((float)(x + (vi - 1.5)*scale) - xx, 2) + pow((float)(y + (vj - 1.5)*scale) - yy, 2) + pow(deltaangle, 2));
-									ff.vector[vi][vj][vk] += weight * exp(-1 * distance);
+									distance = (float)(pow((float)(x + (vi - 1.5)*scale) - xx, 2) + pow((float)(y + (vj - 1.5)*scale) - yy, 2) + pow(deltaangle*scale, 2));
+									ff.vector[vi][vj][vk] += weight * exp(-1 * distance / 15.0f);
 								}
 							}
 						}
@@ -170,4 +171,223 @@ extern "C" void gpuFeature(Mat * m, float * x, float * y, int num, Feature* feat
 	cudaFree(deviceMat);
 	cudaFree(deviceHeight);
 	cudaFree(deviceWidth);
+	cudaFree(deviceNum);
 }
+
+__device__ float subPixelGray(uchar* m, float x, float y, float width, float height) {
+	int x1, x2, y1, y2;
+	float p1, p2, p3, p4, p5, p6, p7;
+	x1 = (int)x;
+	x2 = x1 + 1;
+	y1 = (int)y;
+	y2 = y1 + 1;
+	p1 = rgbSum(m, x1, y1, width, height);
+	p2 = rgbSum(m, x1, y2, width, height);
+	p3 = rgbSum(m, x2, y1, width, height);
+	p4 = rgbSum(m, x2, y2, width, height);
+	p5 = (p2 - p1)*(y - y1) + p1;
+	p6 = (p4 - p3)*(y - y1) + p3;
+	p7 = (p6 - p5)*(x - x1) + p5;
+	return p7;
+}
+__global__ void pickoutMax(uchar* m1, uchar* m2, uchar* m3, int* width, int* height, float* outx, float *outy) {
+	float dxx, dyy, dxy, dx, dy, x, y;
+	float x0 = (blockDim.x*blockIdx.x + threadIdx.x) / (*width);
+	float y0 = (blockDim.x*blockIdx.x + threadIdx.x) % (*width);
+	int featurescale = 3;
+	int use = 1;
+	int flag;
+	float threshold = 20;
+
+	if (!(x0 >= featurescale * 3 + 1 && x0 < *height - featurescale * 3 + 1 && y0 >= featurescale * 3 + 1 && y0 < *width - featurescale * 3 + 1)) {
+		use = 0;
+	}
+	else {
+		flag = 1;
+		for (int i = x0 - 1; i < x0 + 1; i++) {
+			for (int j = y0 - 1; j < y0 + 1; j++) {
+				if (rgbSum(m1, i, j, *width, *height)+threshold >= rgbSum(m2, x0, y0, *width, *height)) {
+					flag = 0;
+					use = 0;
+					break;
+				}
+			}
+		}
+		for (int i = x0 - 1; i < x0 + 1; i++) {
+			for (int j = y0 - 1; j < y0 + 1; j++) {
+				if (rgbSum(m2, i, j, *width, *height) + threshold >= rgbSum(m2, x0, y0, *width, *height) && !(i==x0 && j==y0)) {
+					flag = 0;
+					use = 0;
+					break;
+				}
+			}
+		}
+		for (int i = x0 - 1; i < x0 + 1; i++) {
+			for (int j = y0 - 1; j < y0 + 1; j++) {
+				if (rgbSum(m3, i, j, *width, *height) + threshold >= rgbSum(m2, x0, y0, *width, *height)) {
+					flag = 0;
+					use = 0;
+					break;
+				}
+			}
+		}
+		if (flag == 1) {
+			for (int l = 0; l < 5; l++) {
+				dxx = subPixelGray(m2, x0 - 1, y0,*width,*height) + subPixelGray(m2, x0 + 1, y0, *width, *height) - 2 * subPixelGray(m2, x0, y0, *width, *height);
+				dyy = subPixelGray(m2, x0, y0 - 1, *width, *height) + subPixelGray(m2, x0, y0 + 1, *width, *height) - 2 * subPixelGray(m2, x0, y0, *width, *height);
+				dxy = ((subPixelGray(m2, x0 + 0.5, y0 + 0.5, *width, *height) - subPixelGray(m2, x0 + 0.5, y0 - 0.5, *width, *height)) - (subPixelGray(m2, x0 - 0.5, y0 + 0.5, *width, *height) - subPixelGray(m2, x0 - 0.5, y0 - 0.5, *width, *height)));
+				dx = (subPixelGray(m2, x0 + 0.5, y0, *width, *height) - subPixelGray(m2, x0 - 0.5, y0, *width, *height));
+				dy = (subPixelGray(m2, x0, y0 + 0.5, *width, *height) - subPixelGray(m2, x0, y0 - 0.5, *width, *height));
+				if ((dxy*dxy - dxx * dyy) != 0 && dxx != 0) {
+					y = (dx*dxy - dy * dxx) / (dxx*dyy - dxy * dxy);
+					x = (dy*dxy - dx * dyy) / (dxx*dyy - dxy * dxy);
+				}
+				else {
+					use = 0;
+					break;
+				}
+				if (abs(x) > 0.5 || abs(y) > 0.5) {
+					use = 0;
+					break;
+				}
+				x0 += x;
+				y0 += y;
+				if (!(x0 >= featurescale * 3 + 1 && x0 < *height - featurescale * 3 + 1 && y0 >= featurescale * 3 + 1 && y0 < *width - featurescale * 3 + 1)) {
+					x0 -= x;
+					y0 -= y;
+					use = 0;
+					break;
+				}
+			}
+			//if (dxy < 10) {
+			//	use = 0;
+			//}
+			if (use == 1) {
+				outx[(blockDim.x*blockIdx.x + threadIdx.x)] = x0;
+				outy[(blockDim.x*blockIdx.x + threadIdx.x)] = y0;
+			}
+		}
+	}
+	if (use == 0) {
+		outx[(blockDim.x*blockIdx.x + threadIdx.x)] = 0;
+		outy[(blockDim.x*blockIdx.x + threadIdx.x)] = 0;
+	}
+}
+
+extern "C" void gpuMax(Mat* m1, Mat* m2, Mat* m3, float* xout, float* yout) {
+	int error = 0;
+	uchar* deviceMat1, *deviceMat2, *deviceMat3, *hostMat1, *hostMat2, *hostMat3;
+	error+=(int)cudaMalloc(&deviceMat1, m1->cols*m1->rows * 3);
+	error += (int)cudaMalloc(&deviceMat2, m1->cols*m1->rows * 3);
+	error += (int)cudaMalloc(&deviceMat3, m1->cols*m1->rows * 3);
+	hostMat1 = (uchar*)malloc(m1->cols*m1->rows * 3);
+	hostMat2 = (uchar*)malloc(m1->cols*m1->rows * 3);
+	hostMat3 = (uchar*)malloc(m1->cols*m1->rows * 3);
+	for (int i = 0; i < m1->rows; i++) {
+		for (int j = 0; j < m1->cols * 3; j++) {
+			hostMat1[i*m1->cols * 3 + j] = m1->ptr(i)[j];
+		}
+	}
+	for (int i = 0; i < m1->rows; i++) {
+		for (int j = 0; j < m1->cols * 3; j++) {
+			hostMat2[i*m1->cols * 3 + j] = m2->ptr(i)[j];
+		}
+	}
+	for (int i = 0; i < m1->rows; i++) {
+		for (int j = 0; j < m1->cols * 3; j++) {
+			hostMat2[i*m1->cols * 3 + j] = m2->ptr(i)[j];
+		}
+	}
+	error += (int)cudaMemcpy(deviceMat1, hostMat1, m1->cols*m1->rows * 3, cudaMemcpyHostToDevice);
+	error += (int)cudaMemcpy(deviceMat2, hostMat2, m1->cols*m1->rows * 3, cudaMemcpyHostToDevice);
+	error += (int)cudaMemcpy(deviceMat3, hostMat3, m1->cols*m1->rows * 3, cudaMemcpyHostToDevice);
+
+	float* deviceoutx, *deviceouty;
+	error += (int)cudaMalloc(&deviceoutx, m1->cols*m1->rows * sizeof(float));
+	error += (int)cudaMalloc(&deviceouty, m1->cols*m1->rows * sizeof(float));
+
+	dim3 blockDim = 512;
+	dim3 gridDim = (m1->cols*m1->rows) / 512 + 1;
+
+	int width[1], height[1];
+	width[0] = m1->cols;
+	height[0] = m1->rows;
+	int *deviceWidth, *deviceHeight;
+	error += (int)cudaMalloc(&deviceWidth, sizeof(int));
+	error += (int)cudaMalloc(&deviceHeight, sizeof(int));
+	error += (int)cudaMemcpy(deviceWidth, width, sizeof(int), cudaMemcpyHostToDevice);
+	error += (int)cudaMemcpy(deviceHeight, height, sizeof(int), cudaMemcpyHostToDevice);
+
+	pickoutMax << <gridDim, blockDim >> > (deviceMat1, deviceMat2, deviceMat3, deviceWidth, deviceHeight, deviceoutx, deviceouty);
+	cudaDeviceSynchronize();
+
+	error += (int)cudaMemcpy(xout, deviceoutx, m1->cols*m1->rows * sizeof(float), cudaMemcpyDeviceToHost);
+	error += (int)cudaMemcpy(yout, deviceouty, m1->cols*m1->rows * sizeof(float), cudaMemcpyDeviceToHost);
+
+	//cout << error << endl;
+
+	cudaFree(deviceMat1);
+	cudaFree(deviceMat2);
+	cudaFree(deviceMat3);
+	free(hostMat1);
+	free(hostMat2);
+	free(hostMat3);
+	cudaFree(deviceoutx);
+	cudaFree(deviceouty);
+	cudaFree(deviceWidth);
+	cudaFree(deviceHeight);
+}
+
+__global__ void gpuMatch(Feature* f, Feature* target, int* num, int *ans, int * sourcenum) {
+	int index = blockDim.x*blockIdx.x + threadIdx.x;
+	if (index < *sourcenum) {
+		float matchk, matchmax = 0, matchNo;
+		for (int i = 0; i < *num; i++) {
+			matchk = f[index].gpumatch(&target[i]);
+			if (matchk > matchmax) {
+				matchmax = matchk;
+				matchNo = i;
+			}
+		}
+		if (matchmax > 0.99f) {
+			ans[index] = matchNo;
+		}
+		else {
+			ans[index] = -1;
+		}
+	}
+}
+extern "C" void gpuFeatureMatch(Feature* source, Feature* target, int sourcenum, int targetnum, int* ans) {
+	Feature *devicesource, *devicetarget;
+	cudaMalloc(&devicesource, sourcenum * sizeof(Feature));
+	cudaMalloc(&devicetarget, targetnum * sizeof(Feature));
+	cudaMemcpy(devicesource, source, sourcenum * sizeof(Feature),cudaMemcpyHostToDevice);
+	cudaMemcpy(devicetarget, target, targetnum * sizeof(Feature),cudaMemcpyHostToDevice);
+
+	int* deviceans;
+	cudaMalloc(&deviceans, sourcenum * sizeof(int));
+
+	int *devicesourcenum, *devicetargetnum;
+	cudaMalloc(&devicesourcenum, sizeof(int));
+	cudaMalloc(&devicetargetnum, sizeof(int));
+	int snum[1], tnum[1];
+	snum[0] = sourcenum;
+	tnum[0] = targetnum;
+	cudaMemcpy(devicesourcenum, snum, sizeof(int), cudaMemcpyHostToDevice);
+	cudaMemcpy(devicetargetnum, tnum, sizeof(int), cudaMemcpyHostToDevice);
+	
+	dim3 blockDim(512);
+	dim3 gridDim(sourcenum / 512 + 1);
+
+	gpuMatch << <gridDim, blockDim >> > (devicesource, devicetarget, devicetargetnum, deviceans, devicesourcenum);
+	cudaDeviceSynchronize();
+
+	cudaMemcpy(ans, deviceans, sourcenum * sizeof(int), cudaMemcpyDeviceToHost);
+
+	cudaFree(devicesource);
+	cudaFree(devicetarget);
+	cudaFree(deviceans);
+	cudaFree(devicesourcenum);
+	cudaFree(devicetargetnum);
+}
+
