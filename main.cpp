@@ -58,7 +58,7 @@ char str[] = { 'r',':','x','x','x',' ','g',':','x','x','x',' ','b',':','x','x','
 float gpuMaxX[640 * 480], gpuMaxY[640 * 480];
 float hostx[10000], hosty[10000];
 int PointNumber = 0;
-float sigma = 1.6f, k = 0.5f;
+float sigma = 1.6f, k = 0.50f;
 int threashold = 0;
 float edgeThreashold = 5.0f;
 float preBlur = 0.5f;

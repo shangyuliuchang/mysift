@@ -86,7 +86,7 @@ __global__ void test(uchar* m, float* devicex, float* devicey, Feature* f, int* 
 										deltaangle = 8 - deltaangle;
 									}
 									distance = (float)(pow((float)(x + (vi - 1.5)*scale) - xx, 2) + pow((float)(y + (vj - 1.5)*scale) - yy, 2) + pow(deltaangle*scale, 2));
-									ff.vector[vi][vj][vk] += weight * exp(-1 * distance / 15.0f);
+									ff.vector[vi][vj][vk] += weight * exp(-1 * distance / 18.0f);
 								}
 							}
 						}
@@ -197,7 +197,7 @@ __global__ void pickoutMax(uchar* m1, uchar* m2, uchar* m3, int* width, int* hei
 	int featurescale = 3;
 	int use = 1;
 	int flag;
-	float threshold = 20;
+	float threshold = 10;
 
 	if (!(x0 >= featurescale * 3 + 1 && x0 < *height - featurescale * 3 + 1 && y0 >= featurescale * 3 + 1 && y0 < *width - featurescale * 3 + 1)) {
 		use = 0;
